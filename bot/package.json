@@ -1,0 +1,18 @@
+{
+  "name": "defi-bot",
+  "version": "1.0.0",
+  "description": "Mempool monitoring and sandwich attack bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "nodemon bot.js"
+  },
+  "dependencies": {
+    "ethers": "^5.7.2",
+    "dotenv": "^16.3.1",
+    "axios": "^1.4.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

@@ -1,0 +1,140 @@
+{
+  "projectName": "DeFi DEX Protocol + MEV Bot",
+  "version": "1.0.0",
+  "author": "Web3 Engineer",
+  "description": "Complete mini Uniswap-like system with mempool bot for MEV sandwich attacks",
+  
+  "components": {
+    "blockchain": {
+      "type": "Hardhat Local Node (Anvil-compatible)",
+      "port": 8545,
+      "chainId": 31337,
+      "initialAccounts": 10,
+      "initialBalance": "1000 ETH each"
+    },
+    
+    "contracts": {
+      "language": "Solidity 0.8.19",
+      "framework": "Hardhat",
+      "contracts": [
+        {
+          "name": "MockToken",
+          "description": "ERC20 token for testing",
+          "tokens": ["USDC", "DAI", "WETH"]
+        },
+        {
+          "name": "DexPool",
+          "description": "AMM with x*y=k formula",
+          "features": ["Swaps", "Liquidity Management", "Price Oracles"]
+        },
+        {
+          "name": "DexOperator",
+          "description": "External swap executor",
+          "usage": "MEV bot operations"
+        }
+      ]
+    },
+    
+    "frontend": {
+      "framework": "React 18",
+      "port": 3000,
+      "wallet": "MetaMask",
+      "web3Library": "ethers.js v5",
+      "features": [
+        "Wallet Connection",
+        "Token Swaps",
+        "Liquidity Management",
+        "Position Tracking",
+        "Real-time Balance Updates",
+        "Modern UI/UX"
+      ]
+    },
+    
+    "bot": {
+      "runtime": "Node.js",
+      "type": "Mempool Monitoring Bot",
+      "features": [
+        "Transaction Monitoring",
+        "Calldata Decoding",
+        "Sandwich Attack Execution",
+        "Profit Analysis",
+        "Gas Optimization"
+      ],
+      "attacks": [
+        "Front-run",
+        "Back-run",
+        "Profit Calculation"
+      ]
+    }
+  },
+  
+  "deployment": {
+    "steps": [
+      "npx hardhat node",
+      "npx hardhat run scripts/deploy.js --network localhost",
+      "npm start (frontend)",
+      "node bot.js"
+    ],
+    "addresses": {
+      "rpc": "http://127.0.0.1:8545",
+      "frontend": "http://localhost:3000"
+    }
+  },
+  
+  "testing": {
+    "scenarios": [
+      {
+        "name": "MetaMask Connection",
+        "steps": ["Open frontend", "Click Connect MetaMask", "Verify connection"]
+      },
+      {
+        "name": "Add Liquidity",
+        "steps": ["Navigate to Liquidity", "Enter amounts", "Click Add", "Verify LP tokens"]
+      },
+      {
+        "name": "Execute Swap",
+        "steps": ["Navigate to Swap", "Select tokens", "Enter amount", "Click Swap"]
+      },
+      {
+        "name": "MEV Attack",
+        "steps": ["Run test transaction", "Bot detects", "Bot executes sandwich", "Verify profit"]
+      }
+    ]
+  },
+  
+  "security": {
+    "warnings": [
+      "This is for educational purposes only",
+      "MEV attacks are not ethical on mainnet",
+      "Use only on local blockchain or testnet",
+      "Not production-ready without audits"
+    ]
+  },
+  
+  "performance": {
+    "blockchain": {
+      "blockTime": "~1 second",
+      "gasLimit": "30,000,000",
+      "confirmationTime": "1-2 blocks"
+    },
+    "frontend": {
+      "loadTime": "<2 seconds",
+      "transactionTime": "2-5 seconds"
+    },
+    "bot": {
+      "detectionLatency": "<100ms",
+      "executionTime": "1-2 seconds per attack"
+    }
+  },
+  
+  "future enhancements": [
+    "Flash loans",
+    "Multi-hop routing",
+    "Liquidity mining",
+    "Governance token (DAO)",
+    "Price oracles (Chainlink)",
+    "Advanced MEV protection",
+    "Slippage protection",
+    "Stop-loss orders"
+  ]
+}
