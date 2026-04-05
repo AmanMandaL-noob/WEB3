@@ -76,6 +76,8 @@ const SwapModal = ({ isOpen, onClose, poolAddress, tokens, deploymentAddresses }
   const [isLoading, setIsLoading] = useState(false);
   const [txStatus, setTxStatus] = useState(null);
   const [estimatedOut, setEstimatedOut] = useState('0');
+  const [txReceipt, setTxReceipt] = useState(null);
+  const [balanceInfo, setBalanceInfo] = useState({ before: '0', after: '0' });
 
   const calculateOutput = (amount) => {
     if (!amount || !deploymentAddresses) return '0';
@@ -106,17 +108,24 @@ const SwapModal = ({ isOpen, onClose, poolAddress, tokens, deploymentAddresses }
 
     setIsLoading(true);
     setTxStatus(null);
+    setTxReceipt(null);
 
     try {
-      setTxStatus({ success: null, message: 'Approving tokens...' });
+      setTxStatus({ success: null, message: 'Loading balances...' });
 
       // Get token and pool contracts
       const tokenInAddress = deploymentAddresses.tokenA; // USDC
       const poolAddress = deploymentAddresses.poolAB;
+      const tokenOutAddress = deploymentAddresses.tokenB; // DAI
 
-      console.log('Token address:', tokenInAddress);
-      console.log('Pool address:', poolAddress);
-      console.log('Amount:', amountIn);
+      const userAddress = await signer.getAddress();
+      
+      // Get balance before swap
+      const tokenOutContract = getTokenContract(tokenOutAddress, signer);
+      const balanceBefore = await tokenOutContract.balanceOf(userAddress);
+      setBalanceInfo(prev => ({ ...prev, before: ethers.utils.formatEther(balanceBefore) }));
+
+      setTxStatus({ success: null, message: 'Approving tokens...' });
 
       const tokenContract = getTokenContract(tokenInAddress, signer);
       const poolContract = getPoolContract(poolAddress, signer);
@@ -125,48 +134,68 @@ const SwapModal = ({ isOpen, onClose, poolAddress, tokens, deploymentAddresses }
       const decimals = 6;
       const formattedAmount = ethers.utils.parseUnits(amountIn, decimals);
 
-      console.log('Formatted amount:', formattedAmount.toString());
-
-      // Check current allowance
-      const userAddress = await signer.getAddress();
-      console.log('User address:', userAddress);
-
-      // Approve tokens to pool
-      const approveTx = await tokenContract.approve(poolAddress, formattedAmount);
-      console.log('Approval tx hash:', approveTx.hash);
+      // Approve tokens to pool with unlimited allowance
+      const approveTx = await tokenContract.approve(poolAddress, ethers.constants.MaxUint256);
       
-      const approveReceipt = await approveTx.wait();
+      setTxStatus({ success: null, message: `⏳ Approval pending: ${approveTx.hash.slice(0, 10)}...` });
+      const approveReceipt = await approveTx.wait(1);
       if (!approveReceipt) throw new Error('Approval failed - no receipt');
 
-      console.log('Approval confirmed');
+      setTxStatus({ success: null, message: 'Please confirm swap in MetaMask...' });
 
-      setTxStatus({ success: null, message: 'Executing swap...' });
-
-      // Call swap with tokenIn as an address string (not IERC20 object)
-      const swapTx = await poolContract.swap(formattedAmount, 0, tokenInAddress);
-      console.log('Swap tx hash:', swapTx.hash);
+      // Call swap with tokenIn as an address string
+      const swapTx = await poolContract.swap(formattedAmount, 0, tokenInAddress, {
+        gasLimit: 500000
+      });
       
-      const swapReceipt = await swapTx.wait();
+      setTxStatus({ success: null, message: `⏳ Swap pending: ${swapTx.hash.slice(0, 10)}...` });
+      const swapReceipt = await swapTx.wait(1);
 
-      if (!swapReceipt) throw new Error('Swap transaction failed');
+      if (!swapReceipt) throw new Error('Swap transaction failed - no receipt');
 
-      console.log('Swap confirmed');
+      // Get balance after swap
+      const balanceAfter = await tokenOutContract.balanceOf(userAddress);
+      const balanceChange = ethers.utils.formatEther(balanceAfter.sub(balanceBefore));
+      
+      setBalanceInfo({
+        before: ethers.utils.formatEther(balanceBefore),
+        after: ethers.utils.formatEther(balanceAfter)
+      });
+
+      // Set receipt for display
+      setTxReceipt({
+        txHash: swapReceipt.transactionHash,
+        blockNumber: swapReceipt.blockNumber,
+        gasUsed: swapReceipt.gasUsed.toString(),
+        status: swapReceipt.status === 1 ? 'Success' : 'Failed',
+        amountIn: amountIn,
+        amountOut: balanceChange,
+        tokenIn: 'USDC',
+        tokenOut: 'DAI'
+      });
 
       setTxStatus({
         success: true,
-        message: `✅ Swap successful! TX: ${swapReceipt.transactionHash.slice(0, 10)}...`
+        message: `✅ Swap successful!`
       });
 
       setAmountIn('');
-      setTimeout(() => {
-        handleClose();
-      }, 2500);
+      
     } catch (error) {
       console.error('Full swap error:', error);
-      const errorMsg = error.reason || error.message || 'Unknown error';
+      let errorMsg = error.reason || error.message || 'Unknown error';
+      
+      if (errorMsg.includes('User denied')) {
+        errorMsg = 'Transaction rejected by user';
+      } else if (errorMsg.includes('insufficient balance')) {
+        errorMsg = 'Insufficient token balance';
+      } else if (errorMsg.includes('InsufficientLiquidity')) {
+        errorMsg = 'Insufficient liquidity in pool';
+      }
+      
       setTxStatus({
         success: false,
-        message: `❌ Error: ${errorMsg.slice(0, 60)}`
+        message: `❌ Error: ${errorMsg.slice(0, 80)}`
       });
     } finally {
       setIsLoading(false);
@@ -249,18 +278,96 @@ const SwapModal = ({ isOpen, onClose, poolAddress, tokens, deploymentAddresses }
           </div>
 
           {txStatus && (
-            <div style={{
-              ...styles.txStatus,
-              backgroundColor: txStatus.success ? '#10b981' : txStatus.success === null ? '#f59e0b' : '#ef4444',
-            }}>
-              {txStatus.message}
+            <div>
+              <div style={{
+                ...styles.txStatus,
+                backgroundColor: txStatus.success ? '#10b981' : txStatus.success === null ? '#f59e0b' : '#ef4444',
+              }}>
+                {txStatus.message}
+              </div>
+              
+              {txReceipt && (
+                <div style={styles.receiptBox}>
+                  <div style={styles.receiptTitle}>📋 Transaction Receipt</div>
+                  
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Transaction Hash:</span>
+                    <span style={styles.receiptValue} title={txReceipt.txHash}>
+                      {txReceipt.txHash.slice(0, 10)}...{txReceipt.txHash.slice(-8)}
+                    </span>
+                  </div>
+                  
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Block Number:</span>
+                    <span style={styles.receiptValue}>{txReceipt.blockNumber}</span>
+                  </div>
+                  
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Status:</span>
+                    <span style={{ ...styles.receiptValue, color: '#10b981' }}>
+                      ✅ {txReceipt.status}
+                    </span>
+                  </div>
+
+                  <div style={styles.receiptDivider} />
+                  
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Amount In:</span>
+                    <span style={styles.receiptValue}>
+                      {parseFloat(txReceipt.amountIn).toFixed(6)} {txReceipt.tokenIn}
+                    </span>
+                  </div>
+                  
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Amount Out:</span>
+                    <span style={{ ...styles.receiptValue, color: '#60a5fa', fontWeight: '700' }}>
+                      +{parseFloat(txReceipt.amountOut).toFixed(6)} {txReceipt.tokenOut}
+                    </span>
+                  </div>
+
+                  <div style={styles.receiptDivider} />
+                  
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Balance Before:</span>
+                    <span style={styles.receiptValue}>
+                      {parseFloat(balanceInfo.before).toFixed(6)} {txReceipt.tokenOut}
+                    </span>
+                  </div>
+                  
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Balance After:</span>
+                    <span style={{ ...styles.receiptValue, color: '#10b981', fontWeight: '700' }}>
+                      {parseFloat(balanceInfo.after).toFixed(6)} {txReceipt.tokenOut}
+                    </span>
+                  </div>
+
+                  <div style={styles.receiptDivider} />
+
+                  <div style={styles.receiptRow}>
+                    <span style={styles.receiptLabel}>Gas Used:</span>
+                    <span style={styles.receiptValue}>{txReceipt.gasUsed}</span>
+                  </div>
+
+                  <button
+                    style={{ ...styles.button, ...styles.primaryBtn, marginTop: '16px' }}
+                    onClick={() => {
+                      setAmountIn('');
+                      setTxReceipt(null);
+                      setTxStatus(null);
+                      onClose();
+                    }}
+                  >
+                    ✅ Done
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           <button
-            style={{...styles.button, ...styles.primaryBtn, ...(isLoading ? styles.primaryBtnDisabled : {})}}
+            style={{...styles.button, ...styles.primaryBtn, ...(isLoading ? styles.primaryBtnDisabled : {}), ...(txReceipt ? { display: 'none' } : {})}}
             onClick={handleSwap}
-            disabled={isLoading || !amountIn}
+            disabled={isLoading || !amountIn || txReceipt}
           >
             {isLoading ? '⏳ Processing...' : '🔄 Swap Now'}
           </button>
@@ -1374,6 +1481,50 @@ const styles = {
     fontSize: '12px',
     color: '#10b981',
     fontWeight: '600',
+  },
+  receiptBox: {
+    background: 'rgba(16, 185, 129, 0.1)',
+    border: '2px solid rgba(16, 185, 129, 0.3)',
+    borderRadius: '12px',
+    padding: '16px',
+    marginTop: '16px',
+    marginBottom: '16px',
+    fontSize: '13px',
+  },
+  receiptTitle: {
+    fontSize: '15px',
+    fontWeight: '700',
+    color: '#10b981',
+    marginBottom: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  receiptRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    padding: '10px 0',
+    borderBottom: '1px solid rgba(16, 185, 129, 0.2)',
+    alignItems: 'center',
+  },
+  receiptLabel: {
+    color: '#cbd5e1',
+    fontWeight: '500',
+  },
+  receiptValue: {
+    color: '#f0f9ff',
+    fontWeight: '600',
+    fontFamily: '"Fira Code", monospace',
+    textAlign: 'right',
+    maxWidth: '200px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  receiptDivider: {
+    height: '1px',
+    background: 'rgba(16, 185, 129, 0.3)',
+    margin: '12px 0',
   },
 };
 
